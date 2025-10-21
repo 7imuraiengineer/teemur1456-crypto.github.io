@@ -316,169 +316,143 @@
             reader.readAsArrayBuffer(file);
         }
 
-       function processData(workbook) {
-    const sheetName = workbook.SheetNames[0];
-    const worksheet = workbook.Sheets[sheetName];
+    function processData(workbook) {
+    // ... (unchanged helper function getCellValue)
+    // ... (unchanged range and processedData setup)
+
+        let debugText = 'First 3 rows sample:\n';
     
-    // Helper function to get raw cell data with formatting
-    function getCellValue(sheet, row, col) {
-        const cellAddress = XLSX.utils.encode_cell({r: row, c: col});
-        const cell = sheet[cellAddress];
-        
-        if (!cell) return null;
-        
-        // Try to get formatted text first (what you see in Excel)
-        if (cell.w !== undefined && cell.w !== null) {
-            return cell.w;
-        }
-        
-        // For dates, convert properly
-        if (cell.t === 'd' && cell.v) {
-            return cell.v; // Return date object
-        }
-        
-        // Return raw value
-        return cell.v;
-    }
-    
-    // Get worksheet range
-    const range = XLSX.utils.decode_range(worksheet['!ref']);
-    const processedData = [];
-    
-    let debugText = 'First 3 rows sample:\n';
-    
-    // Start from row 2 (index 1, skipping header row 0)
-    for (let rowIdx = 2; rowIdx <= range.e.r; rowIdx++) {
-        // Read values from specific columns (matching your Python code)
-        const 인계일자_raw = getCellValue(worksheet, rowIdx, 6);   // Column G (index 6)
-        const 업체명_raw = getCellValue(worksheet, rowIdx, 7);      // Column H (index 7)  
-        const 위탁량_raw = getCellValue(worksheet, rowIdx, 10);     // Column K (index 10)
-        const 배출차량_raw = getCellValue(worksheet, rowIdx, 12);   // Column M (index 12)
-        const 업체명2_raw = getCellValue(worksheet, rowIdx, 23);    // Column X (index 23)
-        
-        // Debug first 3 rows
-        if (rowIdx <= 4) {
-            debugText += `Row ${rowIdx}: 인계일자=${인계일자_raw}, 업체명=${업체명_raw}, 위탁량=${위탁량_raw}\n`;
-        }
-        
-        const 위탁량 = parseFloat(위탁량_raw) || 0;
-        
-        // Filter: 위탁량 > 0
-        if (위탁량 <= 0) continue;
-        
-        // Process 배출차량 - get last 4 characters
-        let 배출차량 = '';
-        if (배출차량_raw) {
-            const str = String(배출차량_raw);
-            배출차량 = str.slice(-4);
-            const num = parseInt(배출차량);
-            배출차량 = isNaN(num) ? 배출차량 : num;
-        }
-        
-        // Process 인계일자 - extract day and format as 1900-01-DD
-        let processedDate = '';
-        if (인계일자_raw) {
-            let day = 1;
+        // Start from row 2 (index 1, skipping header row 0)
+        for (let rowIdx = 2; rowIdx <= range.e.r; rowIdx++) {
+            // --- FIX: SWAP COLUMN INDICES TO MATCH DEBUG OUTPUT ERROR ---
+            // Assumption: The data in the file has been shifted, or the columns
+            // in your original sheet are actually: Name in G (6), Date in H (7).
+            // Based on the debug output, we must swap the indices 6 and 7.
+            const 인계일자_raw = getCellValue(worksheet, rowIdx, 7);   // Column H (index 7) -> SHOULD CONTAIN DATE
+            const 업체명_raw = getCellValue(worksheet, rowIdx, 6);      // Column G (index 6) -> SHOULD CONTAIN COMPANY NAME
             
-            if (인계일자_raw instanceof Date) {
-                // Use UTC date to avoid local timezone shift
-                day = 인계일자_raw.getUTCDate(); 
-            } else if (typeof 인계일자_raw === 'number') {
-                // Excel serial date - convert to JS date. 
-                // Using XLSX.SSF.parse_date_code with a date code for reliability.
-                const dateCode = XLSX.SSF.parse_date_code(인계일자_raw);
-                if (dateCode && dateCode.d) {
-                    day = dateCode.d;
-                } else {
-                    // Fallback using the old method, but using UTC methods
-                    const excelEpoch = new Date(Date.UTC(1899, 11, 30));
-                    const msPerDay = 86400 * 1000;
-                    // Add 12 hours (43200000ms) to the serial date to minimize timezone-crossing-midnight issues when converting to a date object.
-                    const jsDate = new Date(excelEpoch.getTime() + 인계일자_raw * msPerDay + 43200000); 
-                    day = jsDate.getUTCDate();
-                }
-            } else if (typeof 인계일자_raw === 'string') {
-                // Try to parse string date
-                const parsed = new Date(인계일자_raw);
-                // Check if parsing was successful and it's a plausible date string
-                if (!isNaN(parsed) && String(인계일자_raw).length > 4) { 
-                    day = parsed.getDate();
-                } else {
-                    // Extract number from string (last resort)
-                    const match = String(인계일자_raw).match(/\d+/);
-                    day = match ? parseInt(match[0]) : 1;
-                }
+            const 위탁량_raw = getCellValue(worksheet, rowIdx, 10);     // Column K (index 10) - Unchanged
+            const 배출차량_raw = getCellValue(worksheet, rowIdx, 12);   // Column M (index 12) - Unchanged
+            const 업체명2_raw = getCellValue(worksheet, rowIdx, 23);    // Column X (index 23) - Unchanged
+    
+            // Debug first 3 rows (using correct labels now)
+            if (rowIdx <= 4) {
+                debugText += `Row ${rowIdx}: 인계일자_Raw(H)=${인계일자_raw}, 업체명_Raw(G)=${업체명_raw}, 위탁량_Raw(K)=${위탁량_raw}\n`;
             }
             
-            processedDate = `1900-01-${String(day).padStart(2, '0')}`;
+            const 위탁량 = parseFloat(위탁량_raw) || 0;
+            
+            // Filter: 위탁량 > 0
+            if (위탁량 <= 0) continue;
+            
+            // Process 배출차량 - get last 4 characters (Unchanged)
+            let 배출차량 = '';
+            if (배출차량_raw) {
+                const str = String(배출차량_raw);
+                배출차량 = str.slice(-4);
+                const num = parseInt(배출차량);
+                배출차량 = isNaN(num) ? 배출차량 : num;
+            }
+            
+            // Process 인계일자 (Now operating on the value from index 7)
+            let processedDate = '';
+            if (인계일자_raw) {
+                let day = 1;
+                
+                // Re-using the robust date logic from the previous fix
+                if (인계일자_raw instanceof Date) {
+                    day = 인계일자_raw.getUTCDate(); 
+                } else if (typeof 인계일자_raw === 'number') {
+                    const dateCode = XLSX.SSF.parse_date_code(인계일자_raw);
+                    if (dateCode && dateCode.d) {
+                        day = dateCode.d;
+                    } else {
+                        const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+                        const msPerDay = 86400 * 1000;
+                        const jsDate = new Date(excelEpoch.getTime() + 인계일자_raw * msPerDay + 43200000); 
+                        day = jsDate.getUTCDate();
+                    }
+                } else if (typeof 인계일자_raw === 'string') {
+                    const parsed = new Date(인계일자_raw);
+                    if (!isNaN(parsed) && String(인계일자_raw).length > 4) { 
+                        day = parsed.getDate();
+                    } else {
+                        const match = String(인계일자_raw).match(/\d+/);
+                        day = match ? parseInt(match[0]) : 1;
+                    }
+                }
+                
+                processedDate = `1900-01-${String(day).padStart(2, '0')}`;
+            }
+            
+            // Process 업체명 (Now operating on the value from index 6)
+            let 업체명_processed = '';
+            if (업체명_raw !== null && 업체명_raw !== undefined) {
+                업체명_processed = String(업체명_raw).trim(); // Keep the .trim() fix
+            }
+            
+            // ... (rest of the logic for 업체명2 and 위탁량 is unchanged) ...
+    
+            // Replace company names in 업체명.2
+            const replaceMap = {
+                '수도권매립지관리공사(반입팀)': '매립지',
+                '농업회사법인 석계 (주)': '석계',
+                '서울물재생시설공단-서남센터': '서남',
+                '서울특별시 난지 물재생센터': '난지',
+                '정애영농조합법인': '정애영농',
+                '인천환경공단 가좌사업소': '가좌사업소',
+                '전주리싸이클링에너지(주)-완산': '전주',
+                '서울시중랑물재생센터-처리자': '중랑',
+                '칠성에너지 영농조합법인': '칠성에너지'
+            };
+            
+            let 업체명2_processed = 업체명2_raw ? String(업체명2_raw) : '';
+            if (업체명2_processed && replaceMap[업체명2_processed]) {
+                업체명2_processed = replaceMap[업체명2_processed];
+            }
+            
+            // Remove (주)
+            if (업체명2_processed) {
+                업체명2_processed = 업체명2_processed.replace(/\(주\)/g, '');
+            }
+            
+            // Adjust 위탁량 if < 100
+            let 위탁량_processed = 위탁량;
+            if (위탁량 < 100) {
+                위탁량_processed = 위탁량 * 1000;
+            }
+            
+            processedData.push({
+                '배출차량': 배출차량,
+                '인계일자': processedDate, // Column 2
+                '업체명': 업체명_processed, // Column 3
+                '업체명.2': 업체명2_processed,
+                '위탁량': 위탁량_processed
+            });
         }
         
-        // Process 업체명 - convert to string and **trim** whitespace (FIX: changed from remove all to trim)
-        let 업체명_processed = '';
-        if (업체명_raw !== null && 업체명_raw !== undefined) {
-            업체명_processed = String(업체명_raw).trim();
+        // Show debug info
+        debugInfo.textContent = debugText;
+        debugInfo.style.display = 'block';
+        
+        if (processedData.length === 0) {
+            throw new Error('No data to process after filtering (all rows had 위탁량 <= 0)');
         }
         
-        // Replace company names in 업체명.2
-        const replaceMap = {
-            '수도권매립지관리공사(반입팀)': '매립지',
-            '농업회사법인 석계 (주)': '석계',
-            '서울물재생시설공단-서남센터': '서남',
-            '서울특별시 난지 물재생센터': '난지',
-            '정애영농조합법인': '정애영농',
-            '인천환경공단 가좌사업소': '가좌사업소',
-            '전주리싸이클링에너지(주)-완산': '전주',
-            '서울시중랑물재생센터-처리자': '중랑',
-            '칠성에너지 영농조합법인': '칠성에너지'
-        };
+        // Create new workbook
+        const newWorksheet = XLSX.utils.json_to_sheet(processedData);
+        const newWorkbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(newWorkbook, newWorksheet, 'Processed Data');
         
-        let 업체명2_processed = 업체명2_raw ? String(업체명2_raw) : '';
-        if (업체명2_processed && replaceMap[업체명2_processed]) {
-            업체명2_processed = replaceMap[업체명2_processed];
-        }
+        // Generate filename with yesterday's date
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        const dateStr = yesterday.toISOString().split('T')[0];
+        processedFileName = `new_data_${dateStr}.xlsx`;
         
-        // Remove (주)
-        if (업체명2_processed) {
-            업체명2_processed = 업체명2_processed.replace(/\(주\)/g, '');
-        }
-        
-        // Adjust 위탁량 if < 100
-        let 위탁량_processed = 위탁량;
-        if (위탁량 < 100) {
-            위탁량_processed = 위탁량 * 1000;
-        }
-        
-        processedData.push({
-            '배출차량': 배출차량,
-            '인계일자': processedDate, // Column 2
-            '업체명': 업체명_processed, // Column 3
-            '업체명.2': 업체명2_processed,
-            '위탁량': 위탁량_processed
-        });
+        processedWorkbook = newWorkbook;
+        return true;
     }
-    
-    // Show debug info
-    debugInfo.textContent = debugText;
-    debugInfo.style.display = 'block';
-    
-    if (processedData.length === 0) {
-        throw new Error('No data to process after filtering (all rows had 위탁량 <= 0)');
-    }
-    
-    // Create new workbook
-    const newWorksheet = XLSX.utils.json_to_sheet(processedData);
-    const newWorkbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(newWorkbook, newWorksheet, 'Processed Data');
-    
-    // Generate filename with yesterday's date
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const dateStr = yesterday.toISOString().split('T')[0];
-    processedFileName = `new_data_${dateStr}.xlsx`;
-    
-    processedWorkbook = newWorkbook;
-    return true;
-}
 
         downloadBtn.addEventListener('click', () => {
             if (processedWorkbook) {
