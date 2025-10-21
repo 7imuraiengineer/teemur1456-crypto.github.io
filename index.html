@@ -306,7 +306,9 @@
             // Read data with range starting from row 2 (skip 1 row)
             const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
                 header: 1,
-                range: 1 // Skip first row
+                range: 1, // Skip first row
+                raw: false, // This helps with date formatting
+                dateNF: 'yyyy-mm-dd'
             });
 
             if (jsonData.length < 2) {
@@ -326,12 +328,17 @@
                 if (!row || row.length < 24) continue;
                 
                 // Get columns starting from column G (index 6)
-                // Columns: 인계일자(0), 업체명(1), 위탁량(4), 배출차량(6), 업체명.2(17)
-                const 인계일자 = row[6];
-                const 업체명 = row[7];
-                const 위탁량 = parseFloat(row[10]) || 0;
-                const 배출차량_raw = row[12];
-                const 업체명2 = row[23];
+                // After iloc[:, 6:], the indices shift
+                // 인계일자 is at position 0 (column G in original)
+                // 업체명 is at position 1 (column H in original)
+                // 위탁량 is at position 4 (column K in original)
+                // 배출차량 is at position 6 (column M in original)
+                // 업체명.2 is at position 17 (column X in original)
+                const 인계일자_raw = row[6];   // Column G (index 6)
+                const 업체명_raw = row[7];      // Column H (index 7)
+                const 위탁량 = parseFloat(row[10]) || 0;  // Column K (index 10)
+                const 배출차량_raw = row[12];   // Column M (index 12)
+                const 업체명2 = row[23];        // Column X (index 23)
                 
                 // Filter: 위탁량 > 0
                 if (위탁량 <= 0) continue;
@@ -346,15 +353,51 @@
                     배출차량 = isNaN(num) ? 배출차량 : num;
                 }
                 
-                // Process 인계일자 - convert to date with year 1900, month 1
+                // Process 인계일자 - convert Excel date to JavaScript date, then format as 1900-01-DD
                 let processedDate = '';
-                if (인계일자) {
+                if (인계일자_raw) {
                     try {
-                        const excelDate = XLSX.SSF.parse_date_code(인계일자);
-                        processedDate = `1900-01-${String(excelDate.d).padStart(2, '0')}`;
-                    } catch {
-                        processedDate = String(인계일자);
+                        let dateObj;
+                        
+                        // Check if it's already a date string
+                        if (typeof 인계일자_raw === 'string' && 인계일자_raw.includes('-')) {
+                            dateObj = new Date(인계일자_raw);
+                        } else if (typeof 인계일자_raw === 'number') {
+                            // Excel serial date number
+                            // Excel dates are days since 1900-01-01
+                            dateObj = new Date((인계일자_raw - 25569) * 86400 * 1000);
+                        } else {
+                            dateObj = new Date(인계일자_raw);
+                        }
+                        
+                        // Extract day of month and format as 1900-01-DD
+                        const day = dateObj.getDate();
+                        processedDate = `1900-01-${String(day).padStart(2, '0')}`;
+                    } catch (e) {
+                        // If parsing fails, try to extract day directly
+                        const str = String(인계일자_raw);
+                        const match = str.match(/\d+/);
+                        const day = match ? parseInt(match[0]) : 1;
+                        processedDate = `1900-01-${String(day).padStart(2, '0')}`;
                     }
+                }
+                
+                // Process 업체명 - handle Excel date numbers that appear as company names
+                let 업체명_processed = '';
+                if (업체명_raw) {
+                    // If it's a number (like Excel date 45950), convert to date and extract text
+                    if (typeof 업체명_raw === 'number') {
+                        try {
+                            // Try to read from adjacent cell or use as-is
+                            업체명_processed = String(업체명_raw);
+                        } catch (e) {
+                            업체명_processed = '';
+                        }
+                    } else {
+                        업체명_processed = String(업체명_raw);
+                    }
+                    // Remove whitespace
+                    업체명_processed = 업체명_processed.replace(/\s+/g, '');
                 }
                 
                 // Replace company names
@@ -377,7 +420,7 @@
                 
                 // Remove (주)
                 if (업체명2_processed) {
-                    업체명2_processed = 업체명2_processed.replace(/\(주\)/g, '');
+                    업체명2_processed = String(업체명2_processed).replace(/\(주\)/g, '');
                 }
                 
                 // Adjust 위탁량 if < 100
@@ -385,9 +428,6 @@
                 if (위탁량 < 100) {
                     위탁량_processed = 위탁량 * 1000;
                 }
-                
-                // Remove whitespace from 업체명
-                let 업체명_processed = 업체명 ? String(업체명).replace(/\s+/g, '') : '';
                 
                 processedData.push({
                     '배출차량': 배출차량,
