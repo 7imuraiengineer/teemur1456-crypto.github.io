@@ -182,6 +182,18 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+
+        .debug-info {
+            margin-top: 20px;
+            padding: 15px;
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 10px;
+            display: none;
+            max-height: 200px;
+            overflow-y: auto;
+            font-size: 0.85em;
+        }
     </style>
 </head>
 <body>
@@ -204,6 +216,8 @@
         <div class="spinner" id="spinner"></div>
 
         <div class="status" id="status"></div>
+        
+        <div class="debug-info" id="debugInfo"></div>
 
         <div class="button-group" id="buttonGroup" style="display: none;">
             <button class="btn" id="downloadBtn">⬇️ Download Processed File</button>
@@ -222,6 +236,7 @@
         const buttonGroup = document.getElementById('buttonGroup');
         const downloadBtn = document.getElementById('downloadBtn');
         const resetBtn = document.getElementById('resetBtn');
+        const debugInfo = document.getElementById('debugInfo');
 
         let processedWorkbook = null;
         let processedFileName = '';
@@ -274,12 +289,13 @@
             showStatus('Processing file...', 'processing');
             spinner.style.display = 'block';
             buttonGroup.style.display = 'none';
+            debugInfo.style.display = 'none';
 
             const reader = new FileReader();
             reader.onload = function(e) {
                 try {
                     const data = new Uint8Array(e.target.result);
-                    const workbook = XLSX.read(data, { type: 'array' });
+                    const workbook = XLSX.read(data, { type: 'array', cellDates: true, cellStyles: true });
                     
                     // Process the data
                     const processed = processData(workbook);
@@ -292,6 +308,7 @@
                     }
                 } catch (error) {
                     showStatus('❌ Error: ' + error.message, 'error');
+                    console.error(error);
                 } finally {
                     spinner.style.display = 'none';
                 }
@@ -303,42 +320,48 @@
             const sheetName = workbook.SheetNames[0];
             const worksheet = workbook.Sheets[sheetName];
             
-            // Read data with range starting from row 2 (skip 1 row)
-            const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
-                header: 1,
-                range: 1, // Skip first row
-                raw: false, // This helps with date formatting
-                dateNF: 'yyyy-mm-dd'
-            });
-
-            if (jsonData.length < 2) {
-                throw new Error('Not enough data in the file');
+            // Helper function to get raw cell data with formatting
+            function getCellValue(sheet, row, col) {
+                const cellAddress = XLSX.utils.encode_cell({r: row, c: col});
+                const cell = sheet[cellAddress];
+                
+                if (!cell) return null;
+                
+                // Try to get formatted text first (what you see in Excel)
+                if (cell.w !== undefined && cell.w !== null) {
+                    return cell.w;
+                }
+                
+                // For dates, convert properly
+                if (cell.t === 'd' && cell.v) {
+                    return cell.v; // Return date object
+                }
+                
+                // Return raw value
+                return cell.v;
             }
-
-            // Get headers from row 2 (index 0 after skipping row 1)
-            const headers = jsonData[0];
             
-            // Process data starting from row 3 (index 1)
+            // Get worksheet range
+            const range = XLSX.utils.decode_range(worksheet['!ref']);
             const processedData = [];
             
-            for (let i = 1; i < jsonData.length; i++) {
-                const row = jsonData[i];
+            let debugText = 'First 3 rows sample:\n';
+            
+            // Start from row 2 (index 1, skipping header row 0)
+            for (let rowIdx = 2; rowIdx <= range.e.r; rowIdx++) {
+                // Read values from specific columns (matching your Python code)
+                const 인계일자_raw = getCellValue(worksheet, rowIdx, 6);   // Column G (index 6)
+                const 업체명_raw = getCellValue(worksheet, rowIdx, 7);      // Column H (index 7)  
+                const 위탁량_raw = getCellValue(worksheet, rowIdx, 10);     // Column K (index 10)
+                const 배출차량_raw = getCellValue(worksheet, rowIdx, 12);   // Column M (index 12)
+                const 업체명2_raw = getCellValue(worksheet, rowIdx, 23);    // Column X (index 23)
                 
-                // Skip if row is empty or doesn't have enough columns
-                if (!row || row.length < 24) continue;
+                // Debug first 3 rows
+                if (rowIdx <= 4) {
+                    debugText += `Row ${rowIdx}: 인계일자=${인계일자_raw}, 업체명=${업체명_raw}, 위탁량=${위탁량_raw}\n`;
+                }
                 
-                // Get columns starting from column G (index 6)
-                // After iloc[:, 6:], the indices shift
-                // 인계일자 is at position 0 (column G in original)
-                // 업체명 is at position 1 (column H in original)
-                // 위탁량 is at position 4 (column K in original)
-                // 배출차량 is at position 6 (column M in original)
-                // 업체명.2 is at position 17 (column X in original)
-                const 인계일자_raw = row[6];   // Column G (index 6)
-                const 업체명_raw = row[7];      // Column H (index 7)
-                const 위탁량 = parseFloat(row[10]) || 0;  // Column K (index 10)
-                const 배출차량_raw = row[12];   // Column M (index 12)
-                const 업체명2 = row[23];        // Column X (index 23)
+                const 위탁량 = parseFloat(위탁량_raw) || 0;
                 
                 // Filter: 위탁량 > 0
                 if (위탁량 <= 0) continue;
@@ -348,59 +371,43 @@
                 if (배출차량_raw) {
                     const str = String(배출차량_raw);
                     배출차량 = str.slice(-4);
-                    // Convert to number if possible
                     const num = parseInt(배출차량);
                     배출차량 = isNaN(num) ? 배출차량 : num;
                 }
                 
-                // Process 인계일자 - convert Excel date to JavaScript date, then format as 1900-01-DD
+                // Process 인계일자 - extract day and format as 1900-01-DD
                 let processedDate = '';
                 if (인계일자_raw) {
-                    try {
-                        let dateObj;
-                        
-                        // Check if it's already a date string
-                        if (typeof 인계일자_raw === 'string' && 인계일자_raw.includes('-')) {
-                            dateObj = new Date(인계일자_raw);
-                        } else if (typeof 인계일자_raw === 'number') {
-                            // Excel serial date number
-                            // Excel dates are days since 1900-01-01
-                            dateObj = new Date((인계일자_raw - 25569) * 86400 * 1000);
+                    let day = 1;
+                    
+                    if (인계일자_raw instanceof Date) {
+                        day = 인계일자_raw.getDate();
+                    } else if (typeof 인계일자_raw === 'number') {
+                        // Excel serial date - convert to JS date
+                        const jsDate = new Date((인계일자_raw - 25569) * 86400 * 1000);
+                        day = jsDate.getDate();
+                    } else if (typeof 인계일자_raw === 'string') {
+                        // Try to parse string date
+                        const parsed = new Date(인계일자_raw);
+                        if (!isNaN(parsed)) {
+                            day = parsed.getDate();
                         } else {
-                            dateObj = new Date(인계일자_raw);
+                            // Extract number from string
+                            const match = 인계일자_raw.match(/\d+/);
+                            day = match ? parseInt(match[0]) : 1;
                         }
-                        
-                        // Extract day of month and format as 1900-01-DD
-                        const day = dateObj.getDate();
-                        processedDate = `1900-01-${String(day).padStart(2, '0')}`;
-                    } catch (e) {
-                        // If parsing fails, try to extract day directly
-                        const str = String(인계일자_raw);
-                        const match = str.match(/\d+/);
-                        const day = match ? parseInt(match[0]) : 1;
-                        processedDate = `1900-01-${String(day).padStart(2, '0')}`;
                     }
+                    
+                    processedDate = `1900-01-${String(day).padStart(2, '0')}`;
                 }
                 
-                // Process 업체명 - handle Excel date numbers that appear as company names
+                // Process 업체명 - convert to string and remove whitespace
                 let 업체명_processed = '';
-                if (업체명_raw) {
-                    // If it's a number (like Excel date 45950), convert to date and extract text
-                    if (typeof 업체명_raw === 'number') {
-                        try {
-                            // Try to read from adjacent cell or use as-is
-                            업체명_processed = String(업체명_raw);
-                        } catch (e) {
-                            업체명_processed = '';
-                        }
-                    } else {
-                        업체명_processed = String(업체명_raw);
-                    }
-                    // Remove whitespace
-                    업체명_processed = 업체명_processed.replace(/\s+/g, '');
+                if (업체명_raw !== null && 업체명_raw !== undefined) {
+                    업체명_processed = String(업체명_raw).replace(/\s+/g, '');
                 }
                 
-                // Replace company names
+                // Replace company names in 업체명.2
                 const replaceMap = {
                     '수도권매립지관리공사(반입팀)': '매립지',
                     '농업회사법인 석계 (주)': '석계',
@@ -413,14 +420,14 @@
                     '칠성에너지 영농조합법인': '칠성에너지'
                 };
                 
-                let 업체명2_processed = 업체명2;
-                if (업체명2 && replaceMap[업체명2]) {
-                    업체명2_processed = replaceMap[업체명2];
+                let 업체명2_processed = 업체명2_raw ? String(업체명2_raw) : '';
+                if (업체명2_processed && replaceMap[업체명2_processed]) {
+                    업체명2_processed = replaceMap[업체명2_processed];
                 }
                 
                 // Remove (주)
                 if (업체명2_processed) {
-                    업체명2_processed = String(업체명2_processed).replace(/\(주\)/g, '');
+                    업체명2_processed = 업체명2_processed.replace(/\(주\)/g, '');
                 }
                 
                 // Adjust 위탁량 if < 100
@@ -438,8 +445,12 @@
                 });
             }
             
+            // Show debug info
+            debugInfo.textContent = debugText;
+            debugInfo.style.display = 'block';
+            
             if (processedData.length === 0) {
-                throw new Error('No data to process after filtering');
+                throw new Error('No data to process after filtering (all rows had 위탁량 <= 0)');
             }
             
             // Create new workbook
@@ -468,6 +479,7 @@
             fileInfo.style.display = 'none';
             status.style.display = 'none';
             buttonGroup.style.display = 'none';
+            debugInfo.style.display = 'none';
             processedWorkbook = null;
             processedFileName = '';
         });
